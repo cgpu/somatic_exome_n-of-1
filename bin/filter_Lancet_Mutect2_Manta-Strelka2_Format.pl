@@ -229,8 +229,8 @@ if($vcf=~m/strelka2\.snv/){
         $raw.=$line;
         @sp=split(/\t/,$line);
         if($sp[6] eq "PASS"){
-          my $tflag=&strelka2tumourFilter(@sp);
-          my $gflag=&strelka2germlineFilter(@sp);
+          my $tflag=&strelka2SNVtumourFilter(@sp);
+          my $gflag=&strelka2SNVgermlineFilter(@sp);
           if(($tflag == 1) && ($gflag == 1)){
             my $siflag=&indelOrSNV(@sp);
             if($siflag==0){

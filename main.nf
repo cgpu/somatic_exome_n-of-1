@@ -22,13 +22,15 @@ if (params.help) {
   log.info 'Optional arguments:'
   log.info '    --includeOrder      STRING      in final plots, use this ordering of samples (if multiple somatic samples); comma-separated, no spaces'
   log.info '    --germline      STRING      run HaplotypeCaller on germline sample and annotate with CPSR'
+  log.info '    --multiqcConfig      STRING      config file for multiqc'
   log.info ''
   exit 1
 }
 
 /* -2: Global Variables
 */
-params.scriptDir = "$workflow.launchDir/scripts"
+params.binDir = "$baseDir/bin"
+params.outDir = "$baseDir/analysis"
 
 // Reference data as params
 params.fasta = Channel.fromPath("$params.refDir/*fasta").getVal()
@@ -62,16 +64,14 @@ params.gps = Channel.fromPath("$params.refDir/mutect2_GetPileupSummaries.vcf.gz"
 params.gpstbi = Channel.fromPath("$params.refDir/mutect2_GetPileupSummaries.vcf.gz.tbi").getVal()
 
 params.cpsrpcgr = Channel.fromPath("$params.sampleMeta").getVal()
+params.vepann = Channel.fromPath("$params.refDir/pcgr/data/grch37/.vep").getVal()
 
 /* -1: Install scripts required if not extant
 */
 process scrpts {
 
-  publishDir path: "$params.scriptDir", mode: "copy", pattern: "*"
-
   output:
-  file('variants_GRanges*.R') into variantsGRangesscript
-  file('vcf42.head.txt') into (pcgrVcfHead, completedscrpts)
+  file('variants_GRanges_consensus_plot.{call,func}.R') into variantsGRangesscript
 
   script:
   """
@@ -80,7 +80,6 @@ process scrpts {
   rm -rf ./somaticVariantConsensus
   """
 }
-completedscrpts.subscribe{ println "Completed scripts" }
 
 /* 0.00: Input using sample.csv
 */
@@ -245,7 +244,7 @@ process mrkdup {
   OUTBAM=\$(echo $bam | sed 's/bam/md.bam/')
   OUTMET=\$(echo $bam | sed 's/bam/md.metrics.txt/')
   {
-    picard-tools ${params.quarter_javamem} \
+    picard ${params.quarter_javamem} \
       MarkDuplicates \
       TMP_DIR=./ \
       INPUT=$bam \
@@ -259,7 +258,7 @@ process mrkdup {
       VERBOSITY=ERROR | samtools view -Shb - > \$OUTBAM
 
   samtools index \$OUTBAM
-  } 2>&1 | tee > $sampleID".picard-tools_markDuplicates.log.txt"
+  } 2>&1 | tee > $sampleID".picard_markDuplicates.log.txt"
   """
 }
 
@@ -367,7 +366,7 @@ process cpsrreport {
   """
   {
     METAID=\$(grep $sampleID $cpsrmeta | cut -d "," -f 2)
-    cpsr.py \
+    python3 cpsr.py \
       --no-docker \
       --no_vcf_validate \
       $vcf \
@@ -460,7 +459,7 @@ process mltmet {
   script:
   """
   {
-    picard-tools CollectHsMetrics \
+    picard CollectHsMetrics \
       I=$bam \
       O=$sampleID".hs_metrics.txt" \
       TMP_DIR=./ \
@@ -468,30 +467,30 @@ process mltmet {
       BAIT_INTERVALS=$exomeintlist  \
       TARGET_INTERVALS=$exomeintlist
 
-    picard-tools CollectAlignmentSummaryMetrics \
+    picard CollectAlignmentSummaryMetrics \
       I=$bam \
       O=$sampleID".AlignmentSummaryMetrics.txt" \
       TMP_DIR=./ \
       R=$fasta
 
-    picard-tools CollectMultipleMetrics \
+    picard CollectMultipleMetrics \
       I=$bam \
       O=$sampleID".CollectMultipleMetrics.txt" \
       TMP_DIR=./ \
       R=$fasta
 
-    picard-tools CollectSequencingArtifactMetrics \
+    picard CollectSequencingArtifactMetrics \
       I=$bam \
       O=$sampleID".artifact_metrics.txt" \
       TMP_DIR=./ \
       R=$fasta
 
-    picard-tools EstimateLibraryComplexity \
+    picard EstimateLibraryComplexity \
       I=$bam \
       O=$sampleID".est_lib_complex_metrics.txt" \
       TMP_DIR=./
 
-    picard-tools CollectInsertSizeMetrics \
+    picard CollectInsertSizeMetrics \
       I=$bam \
       O=$sampleID".insert_size_metrics.txt" \
       H=$bam".histogram.pdf" \
@@ -512,8 +511,8 @@ process fctcsv {
   set file(dbsnp), file(dbsnptbi) from Channel.value([params.dbsnp, params.dbsnptbi])
 
   output:
-  file('*.tab') into facets_consensusing
-  file('*.pcgr.tsv') into facets_pcgr
+  file('*.cncf-jointsegs.pcgr.tsv') into facets_consensusing
+  file('*.fit_ploidy-purity.pcgr.tsv') into facets_pcgr
   file('*') into facetsoutputR
 
   script:
@@ -529,12 +528,12 @@ process fctcsv {
       $germlinebam \
       $tumourbam
 
-    Rscript --vanilla facets_cna.call.R \$CSVFILE
+    Rscript --vanilla ${params.binDir}/facets_cna.call.R \$CSVFILE
 
     echo -e "Chromosome\\tStart\\tEnd\\tSegment_Mean" > $sampleID".cncf-jointsegs.pcgr.tsv"
-    tail -n+2 $sampleID".fit_cncf-jointsegs.tab" | awk '{print \$1"\\t"\$10"\\t"\$11"\\t"\$5}' >> $sampleID".cncf-jointsegs.pcgr.tsv"
+    tail -n+2 $sampleID".fit_cncf-jointsegs.tsv" | awk '{print \$1"\\t"\$10"\\t"\$11"\\t"\$5}' >> $sampleID".cncf-jointsegs.pcgr.tsv"
 
-    tail -n+2 $sampleID".fit_ploidy-purity.tab" > $sampleID".fit_ploidy-purity.pcgr.tsv"
+    tail -n+2 $sampleID".fit_cncf-jointsegs.tsv" > $sampleID".fit_ploidy-purity.pcgr.tsv"
 
   } 2>&1 | tee > $sampleID".facets_snpp_call.log.txt"
   """
@@ -558,11 +557,11 @@ process fctcon {
   """
   {
   OUTID=\$(basename ${workflow.launchDir})
-  Rscript --vanilla facets_cna_consensus.call.R \
+  Rscript --vanilla ${params.binDir}/facets_cna_consensus.call.R \
     $dict \
     $cosmic \
     \$OUTID \
-    facets_cna_consensus.func.R
+    ${params.binDir}/facets_cna_consensus.func.R
   } 2>&1 | tee > "facets_cons.log.txt"
   """
 }
@@ -614,6 +613,7 @@ process mutct2 {
 
     gatk --java-options ${params.full_javamem} \
       FilterMutectCalls \
+      --reference $fasta \
       --contamination-table $sampleID".calculatecontamination.table" \
       --interval-padding 5 \
       --output $sampleID".md.recal.mutect2.FilterMutectCalls.vcf" \
@@ -621,7 +621,7 @@ process mutct2 {
       --variant $sampleID".md.recal.mutect2.vcf" \
       -L $exomeintlist
 
-    perl filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
+    perl ${params.binDir}/filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
       ID=$sampleID \
       DP=14 \
       MD=2 \
@@ -645,7 +645,7 @@ process mutct2_contam {
   file('*.table') into completedcontam
 
   """
-  Rscript --vanilla MuTect2_contamination.call.R $contable $sampleID
+  Rscript --vanilla ${params.binDir}/MuTect2_contamination.call.R $contable $sampleID
   """
 }
 
@@ -663,7 +663,7 @@ process mntstr {
 
   output:
   val(sampleID) into completed2_4
-  file('*.pass.vcf') into strelka2_merge
+  file('*.strelka2.snv_indel.pass.vcf') into strelka2_veping
   file('*.raw.vcf') into strelka2_rawVcf
   file('manta/*') into completedmantacall
 
@@ -699,7 +699,7 @@ process mntstr {
       }
       else{print \$_;}' > \$TUMOURSNVVCF
 
-    perl filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
+    perl ${params.binDir}/filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
      ID=$sampleID \
      DP=14 \
      MD=2 \
@@ -714,35 +714,21 @@ process mntstr {
         else{print \$_;next;}}
       else{print \$_;}' > \$TUMOURINDELVCF
 
-    perl filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
+    perl ${params.binDir}/filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
       ID=$sampleID \
       DP=14 \
       MD=2 \
       VCF=\$TUMOURINDELVCF
 
-  } 2>&1 | tee > $sampleID".manta-strelka2.log.txt"
-  """
-}
-
-/* 2.41: MergeVcf passes from snv indel from Manta/Strelka2
-*/
-process mntstrmerge {
-
-  input:
-  file(vcfs) from strelka2_merge.collect()
-
-  output:
-  file('*.snv_indel.pass.vcf') into strelka2_veping
-
-  script:
-  """
     PASSSNV=\$(ls | grep strelka2.snv.pass.vcf)
     PASSIND=\$(ls | grep strelka2.indel.pass.vcf)
-    SAMPLEID=\$(echo \$PASSSNV | sed 's/.strelka2.snv.pass.vcf//')
+
     gatk MergeVcfs \
-      -I \$PASSSNV.strelka2.snv.pass.vcf \
-      -I \$PASSIND.strelka2.indel.pass.vcf \
-      -O \$SAMPLEID".strelka2.snv_indel.pass.vcf"
+      -I \$PASSSNV \
+      -I \$PASSIND \
+      -O $sampleID".strelka2.snv_indel.pass.vcf"
+
+  } 2>&1 | tee > $sampleID".manta-strelka2.log.txt"
   """
 }
 
@@ -779,7 +765,7 @@ process lancet {
         print \$_;}
       else{print \$_;}' > \$TUMOURVCF
 
-    perl filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
+    perl ${params.binDir}/filter_Lancet_Mutect2_Manta-Strelka2_Format.pl \
       ID=$sampleID \
       DP=14 \
       MD=2 \
@@ -803,6 +789,7 @@ process vepann {
   input:
   each file(vcf) from ALLVCFS
   set file(fasta), file(fai), file(dict) from Channel.value([params.fasta, params.fai, params.dict])
+  file(pcgr_grch37_vep) from Channel.value([params.vepann])
 
   output:
   file('*.vcf') into annoVcfs
@@ -812,7 +799,7 @@ process vepann {
   """
   VCFANNO=\$(echo $vcf | sed "s/.vcf/.vep.vcf/")
 
-  vep --dir_cache /usr/local/ensembl-vep/cache \
+  vep --dir_cache $pcgr_grch37_vep \
     --offline \
     --assembly GRCh37 \
     --vcf_info_field ANN \
@@ -820,7 +807,6 @@ process vepann {
     --species homo_sapiens \
     --check_existing \
     --cache \
-    --merged \
     --fork ${task.cpus} \
     --af_1kg \
     --af_gnomad \
@@ -856,7 +842,6 @@ process vcfGRa {
   input:
   file(rawGRangesvcff) from ALLRAWVEPVCFS.collect()
   set file(callR), file(funcR) from variantsGRangesscript
-  file(vcfHead) from pcgrVcfHead
   val(vcfGermlineID) from vcfGRaID
 
   output:
@@ -875,7 +860,7 @@ process vcfGRa {
 
   ##header VCF
   for VCF in *.pcgr.all.tab.vcf; do
-    cat $vcfHead > 1;
+    cat vcf42.head.txt > 1;
     cat \$VCF >> 1;
     mv 1 \$VCF;
   done
@@ -908,7 +893,7 @@ process pcgrreport {
     METAID=\$(grep \$SAMPLEID $pcgrmeta | cut -d "," -f 2)
     PLOIDY=\$(cut -f 1 \$SAMPLEID".fit_ploidy-purity.pcgr.tsv")
     PURITY=\$(cut -f 2 \$SAMPLEID".fit_ploidy-purity.pcgr.tsv")
-    pcgr.py $pcgr_grch37 \
+    python3 pcgr.py $pcgr_grch37 \
       ./ \
       grch37 \
       $pcgr_grch37/data/grch37/pcgr_configuration_default.toml \
@@ -944,6 +929,10 @@ process mltiQC {
   script:
   """
   OUTID=\$(basename ${workflow.launchDir})
-  multiqc . -i \$OUTID --tag DNA -f -c /usr/local/multiqc_config_BMB.yaml
+  if [[ -e ${params.multiqcConfig} ]]; then
+    multiqc . -i \$OUTID --tag DNA -f -c ${params.multiqcConfig}
+  else
+    multiqc . -i \$OUTID --tag DNA -f
+  fi
   """
 }

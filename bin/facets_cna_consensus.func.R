@@ -2,15 +2,10 @@
 
 ##load libraries
 libs <- c("EnsDb.Hsapiens.v75", "org.Hs.eg.db", "ensembldb", "tidyverse", "GenomicRanges", "bio3d", "plyr")
-for(x in 1:length(libs)){
-  if(!libs[x] %in% rownames(installed.packages())){
-    library("BiocManager")
-    BiocManager::install(libs[x])
-  }
-}
+
 libsLoaded <- lapply(libs,function(l){suppressMessages(library(l, character.only = TRUE))})
 
-strSplitVec <- function(inVec,sepn){ 
+strSplitVec <- function(inVec,sepn){
   sapply(seq_along(inVec),function(f){strsplit(inVec[f],sepn)[[1]]})
 }
 
