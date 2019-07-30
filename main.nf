@@ -70,6 +70,8 @@ params.vepann = Channel.fromPath("$params.refDir/pcgr/data/grch37/.vep").getVal(
 */
 process scrpts {
 
+  publishDir path: "$params.binDir"
+
   output:
   file('variants_GRanges_consensus_plot.{call,func}.R') into variantsGRangesscript
 
@@ -365,8 +367,8 @@ process cpsrreport {
   script:
   """
   {
-    METAID=\$(grep $sampleID $cpsrmeta | cut -d "," -f 2)
-    python3 cpsr.py \
+    METAID=\$(grep $sampleID $cpsrmeta | cut -d "," -f 2 | sed 's/\\s */_/g')
+    cpsr.py \
       --no-docker \
       --no_vcf_validate \
       $vcf \
@@ -392,6 +394,7 @@ process grmflt {
   file(bam) into germbamcombine
   file('*.bam.bai') into germbaicombine
   set val(sampleID), file(bam), file('*.bam.bai') into gmultimetricing
+  val(sampleID) into germlineID
 
   when:
   type == "germline"
@@ -401,6 +404,7 @@ process grmflt {
   samtools index $bam > $bam".bai"
   """
 }
+params.germlineID = germlineID.getVal()
 
 /* 1.4: filter somatic channel for all processes subsequent, index bam
 */
@@ -512,7 +516,7 @@ process fctcsv {
 
   output:
   file('*.cncf-jointsegs.pcgr.tsv') into facets_consensusing
-  file('*.fit_ploidy-purity.pcgr.tsv') into facets_pcgr
+  file('*.pcgr.tsv') into facets_pcgr
   file('*') into facetsoutputR
 
   script:
@@ -533,7 +537,7 @@ process fctcsv {
     echo -e "Chromosome\\tStart\\tEnd\\tSegment_Mean" > $sampleID".cncf-jointsegs.pcgr.tsv"
     tail -n+2 $sampleID".fit_cncf-jointsegs.tsv" | awk '{print \$1"\\t"\$10"\\t"\$11"\\t"\$5}' >> $sampleID".cncf-jointsegs.pcgr.tsv"
 
-    tail -n+2 $sampleID".fit_cncf-jointsegs.tsv" > $sampleID".fit_ploidy-purity.pcgr.tsv"
+    tail -n+2 $sampleID".fit_ploidy-purity.tab" > $sampleID".fit_ploidy-purity.pcgr.tsv"
 
   } 2>&1 | tee > $sampleID".facets_snpp_call.log.txt"
   """
@@ -792,8 +796,7 @@ process vepann {
   file(pcgr_grch37_vep) from Channel.value([params.vepann])
 
   output:
-  file('*.vcf') into annoVcfs
-  file('*.vcf') into (completedvep, runGRanges)
+  file('*.vcf') into runGRanges
 
   script:
   """
@@ -828,10 +831,10 @@ process vepann {
 * each sample has 9 associated (raw,snv,indel per caller)
 * NB increment if adding callers!
 */
-ALLRAWVEPVCFS = runGRanges
-             .mix(lancet_rawVcf)
-             .mix(mutect2_rawVcf)
-             .mix(strelka2_rawVcf)
+ALLVVCFS = runGRanges
+         .mix(lancet_rawVcf)
+         .mix(mutect2_rawVcf)
+         .mix(strelka2_rawVcf)
 
 process vcfGRa {
 
@@ -840,33 +843,43 @@ process vcfGRa {
   publishDir "$params.outDir/calls/variants/data", pattern: '*.[*RData,*tab]'
 
   input:
-  file(rawGRangesvcff) from ALLRAWVEPVCFS.collect()
-  set file(callR), file(funcR) from variantsGRangesscript
-  val(vcfGermlineID) from vcfGRaID
+  file(grangesvcfs) from ALLVVCFS.collect()
 
   output:
-  file('*.ALL.pcgr.all.tab.vcf') into pcgrvcfs
+  file('*snv_indel.pass.vep.vcf.ALL.pcgr.all.tab.vcf') into pcgrvcfs
   file('*') into completedvcfGRangesConsensus
 
   script:
   """
   OUTID=\$(basename ${workflow.launchDir})
-  Rscript --vanilla $callR \
-    $funcR \
-    $vcfGermlineID \
+
+  Rscript --vanilla ${params.binDir}/variants_GRanges_consensus_plot.call.R \
+    ${params.binDir}/variants_GRanges_consensus_plot.func.R \
+    ${params.germlineID} \
     "snv_indel.pass.vep.vcf" \
     \$OUTID \
-    ${params.includeOrder}
-
-  ##header VCF
-  for VCF in *.pcgr.all.tab.vcf; do
-    cat vcf42.head.txt > 1;
-    cat \$VCF >> 1;
-    mv 1 \$VCF;
-  done
+    \"${params.includeOrder}\"
   """
 }
 
+process pcgrVcf {
+
+  input:
+  file(vcf) from pcgrvcfs
+
+  output:
+  file('*') into pcgrinput
+
+  script:
+  """
+  for VCF in *vcf; do
+    NVCF=\$(echo \$VCF | sed 's/snv_indel.pass.vep.vcf.ALL.pcgr.all.tab.vcf/snv_indel.pass.vep.pcgr.vcf/')
+    cat ${params.binDir}/vcf42.head.txt > \$NVCF
+    head -n1 \$VCF >> \$NVCF
+    tail -n+2 \$VCF | sort -V >> \$NVCF
+  done
+  """
+}
 
 /* 3.2 PCGR report
 * take all mutations in consensus.tab from pass.vcfs into single VCF for PCGR
@@ -877,8 +890,8 @@ process pcgrreport {
   publishDir "$params.outDir/calls/variants/pcgr", mode: "copy", pattern: "*[!.html]"
 
   input:
-  file(vcf) from pcgrvcfs
-  file(facetstsvs) from facets_pcgr.collect()
+  file(pcgrinputs) from pcgrinput.collect()
+  file(pcgrfacets) from facets_pcgr.collect()
   file(pcgr_grch37) from PCGR
   file(pcgrmeta) from Channel.value([params.cpsrpcgr])
 
@@ -888,24 +901,33 @@ process pcgrreport {
   script:
   """
   {
-  for VCF in *vcf; do
-    SAMPLEID=\$(echo \$VCF | cut -d "." -f 1)
-    METAID=\$(grep \$SAMPLEID $pcgrmeta | cut -d "," -f 2)
-    PLOIDY=\$(cut -f 1 \$SAMPLEID".fit_ploidy-purity.pcgr.tsv")
-    PURITY=\$(cut -f 2 \$SAMPLEID".fit_ploidy-purity.pcgr.tsv")
-    python3 pcgr.py $pcgr_grch37 \
-      ./ \
-      grch37 \
-      $pcgr_grch37/data/grch37/pcgr_configuration_default.toml \
-      \$METAID \
-      --input_vcf \$VCF \
-      --input_cna \$SAMPLEID".cncf-jointsegs.pcgr.tsv" \
-      --tumor_ploidy \$PLOIDY \
-      --tumour_purity \$PURITY \
-      --no-docker \
-      --force_overwrite \
-      --no_vcf_validate
-  done
+    for VCF in *vcf; do
+      SAMPLEID=\$(echo \$VCF | cut -d "." -f 1)
+      METAID=\$(grep \$SAMPLEID $pcgrmeta | cut -d "," -f 2 | sed 's/\\s */_/g')
+      PLOIDY=\$(cut -f 1 \$SAMPLEID".fit_ploidy-purity.pcgr.tsv")
+      PURITY=\$(cut -f 2 \$SAMPLEID".fit_ploidy-purity.pcgr.tsv")
+      PP="--tumor_ploidy \$PLOIDY --tumor_purity \$PURITY"
+      FACETI=\$SAMPLEID".cncf-jointsegs.pcgr.tsv"
+
+      if [[ \$PLOIDY == "NA" || \$PURITY == "NA" ]]; then
+        PP=""
+      fi
+
+      if [[ -e \$FACETI ]]; then
+        FPP="--input_cna \$FACETI \$PP"
+      else
+        FPP="\$PP"
+      fi
+
+      pcgr.py $pcgr_grch37 \
+        ./ \
+        grch37 \
+        $pcgr_grch37/data/grch37/pcgr_configuration_default.toml \
+        \$METAID \
+        --input_vcf \$VCF \$FPP \
+        --no-docker \
+        --force_overwrite
+    done
   } 2>&1 | tee pcgr.log.txt
   """
 }
