@@ -60,6 +60,7 @@ dependencies:
   - bioconductor-xvector=0.22.0=r351h14c3975_0
   - bioconductor-zlibbioc=1.28.0=r351h14c3975_0
   - bleach=3.1.0=py_0
+  - snp-pileup
   - bwa=0.7.17=h84994c4_5
   - bwidget=1.9.11=0
   - bzip2=1.0.8=h516909a_0

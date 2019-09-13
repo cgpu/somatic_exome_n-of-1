@@ -94,7 +94,7 @@ Channel.fromPath("$params.sampleCsv", type: 'file')
 */
 process bbduk {
 
-  publishDir path: "$params.outDir/$sampleID/bbduk", mode: "copy", pattern: "*.txt"
+  publishDir path: "$params.outDir/samples/$sampleID/bbduk", mode: "copy", pattern: "*.txt"
 
   input:
   set val(type), val(sampleID), file(read1), file(read2) from bbduking
@@ -133,7 +133,7 @@ process bbduk {
 */
 process fastp {
 
-  publishDir "$params.outDir/$sampleID/fastp", mode: "copy", pattern: "*.html"
+  publishDir "$params.outDir/samples/$sampleID/fastp", mode: "copy", pattern: "*.html"
 
   input:
   set val(type), val(sampleID), file(preread1), file(preread2), file(postread1), file(postread2) from fastping
@@ -154,7 +154,7 @@ process fastp {
 */
 process fastqc {
 
-  publishDir "$params.outDir/$sampleID/fastqc", mode: "copy", pattern: "*.html"
+  publishDir "$params.outDir/samples/$sampleID/fastqc", mode: "copy", pattern: "*.html"
 
   input:
   set val(type), val(sampleID), file(read1), file(read2) from fastqcing
@@ -175,7 +175,7 @@ process bwamem {
 
   cache 'deep'
 
-  publishDir path: "$params.outDir/$sampleID/bwa", mode: "copy", pattern: "*.log.txt"
+  publishDir path: "$params.outDir/samples/$sampleID/bwa", mode: "copy", pattern: "*.log.txt"
 
   input:
   set val(type), val(sampleID), file(read1), file(read2) from bwa_memming
@@ -211,7 +211,7 @@ process bwamem {
 */
 process cram {
 
-  publishDir path: "$params.outDir/$sampleID/bwa", mode: "copy", pattern: "*.cra*"
+  publishDir path: "$params.outDir/samples/$sampleID/bwa", mode: "copy", pattern: "*.cra*"
 
   input:
   set val(type), val(sampleID), file(bam), file(bai) from cramming
@@ -231,8 +231,8 @@ process cram {
 */
 process mrkdup {
 
-  publishDir path: "$params.outDir/$sampleID/picard/markdup", mode: "copy", pattern: "*[!.metrics.txt]"
-  publishDir path: "$params.outDir/$sampleID/picard/metrics", mode: "copy", pattern: "*.metrics.txt"
+  publishDir path: "$params.outDir/samples/$sampleID/picard/markdup", mode: "copy", pattern: "*[!.metrics.txt]"
+  publishDir path: "$params.outDir/samples/$sampleID/picard/metrics", mode: "copy", pattern: "*.metrics.txt"
 
   input:
   set val(type), val(sampleID), file(bam), file(bai) from dup_marking
@@ -269,7 +269,7 @@ process mrkdup {
 */
 process gtkrcl {
 
-  publishDir path: "$params.outDir/$sampleID/gatk4/bestpractice", mode: "copy"
+  publishDir path: "$params.outDir/samples/$sampleID/gatk4/bestpractice", mode: "copy"
 
   input:
   set val(type), val(sampleID), file(bam), file(bai) from gatk4recaling
@@ -312,7 +312,7 @@ process gtkrcl {
 */
 process gatkgerm {
 
-  publishDir "$params.outDir/$type/$sampleID/gatk4/HC_germline", mode: "copy", pattern: "*"
+  publishDir "$params.outDir/samples/$sampleID/gatk4/HC_germline", mode: "copy", pattern: "*"
 
   input:
   set val(type), val(sampleID), file(bam) from gatk_germ
@@ -353,8 +353,8 @@ process gatkgerm {
 Channel.fromPath("$params.refDir/pcgr/", type: 'dir').into { CPSR; PCGR }
 process cpsrreport {
 
-  publishDir "$params.outDir/calls/reports", mode: "copy", pattern: "*.html"
-  publishDir "$params.outDir/calls/variants/cpsr", mode: "copy", pattern: "*[!.html]"
+  publishDir "$params.outDir/reports", mode: "copy", pattern: "*.html"
+  publishDir "$params.outDir/output/cpsr", mode: "copy", pattern: "*[!.html]"
 
   input:
   set val(sampleID), file(vcf), file(tbi) from germ_vcf
@@ -449,7 +449,7 @@ MULTIALL = gmultimetricing.mix(multimetricing)
 
 process mltmet {
 
-  publishDir "$params.outDir/$sampleID/metrics"
+  publishDir "$params.outDir/samples/$sampleID/metrics"
 
   input:
   set val(sampleID), file(bam), file(bai) from MULTIALL
@@ -508,7 +508,7 @@ process mltmet {
 */
 process fctcsv {
 
-  publishDir "$params.outDir/$sampleID/facets"
+  publishDir "$params.outDir/samples/$sampleID/facets"
 
   input:
   set val(sampleID), file(tumourbam), file(tumourbai), val(germlineID), file(germlinebam), file(germlinebai) from facetsomaing
@@ -547,7 +547,7 @@ process fctcsv {
 */
 process fctcon {
 
-  publishDir "$params.outDir/calls/scna/facets"
+  publishDir "$params.outDir/output/scna/facets"
 
   input:
   file(filesn) from facets_consensusing.collect()
@@ -575,8 +575,8 @@ process fctcon {
 */
 process mutct2 {
 
-  publishDir path: "$params.outDir/$sampleID/mutect2", mode: "copy"
-  publishDir path: "$params.outDir/calls/variants/vcf", mode: "copy", pattern: '*raw.vcf'
+  publishDir path: "$params.outDir/samples/$sampleID/mutect2", mode: "copy"
+  publishDir path: "$params.outDir/output/vcf", mode: "copy", pattern: '*raw.vcf'
 
   input:
   set val(sampleID), file(tumourbam), file(tumourbai), val(germlineID), file(germlinebam), file(germlinebai) from mutect2somaticing
@@ -640,7 +640,7 @@ process mutct2 {
 */
 process mutct2_contam {
 
-  publishDir path: "$params.outDir/", mode: "copy", pattern: '*issue.table'
+  publishDir path: "$params.outDir/samples/", mode: "copy", pattern: '*issue.table'
 
   input:
   set val(sampleID), file(contable) from contamination
@@ -657,8 +657,8 @@ process mutct2_contam {
 */
 process mntstr {
 
-  publishDir path: "$params.outDir/$sampleID/manta-strelka2"
-  publishDir path: "$params.outDir/calls/variants/vcf", mode: "copy", pattern: '*raw.vcf'
+  publishDir path: "$params.outDir/samples/$sampleID/manta-strelka2"
+  publishDir path: "$params.outDir/output/vcf", mode: "copy", pattern: '*raw.vcf'
 
   input:
   set val(sampleID), file(tumourbam), file(tumourbai), val(germlineID), file(germlinebam), file(germlinebai) from mantastrelka2ing
@@ -675,12 +675,14 @@ process mntstr {
   """
   {
     configManta.py \
+      --exome \
+      --referenceFasta=$fasta \
+      --callRegions $exomebedgz \
       --normalBam=$germlinebam \
       --tumourBam=$tumourbam \
-      --referenceFasta=$fasta \
       --runDir=manta
 
-    manta/runWorkflow.py -m local
+    manta/runWorkflow.py -m local -j ${task.cpus}
 
     configureStrelkaSomaticWorkflow.py \
       --exome \
@@ -691,7 +693,7 @@ process mntstr {
       --tumorBam=$tumourbam \
       --runDir=strelka2
 
-    strelka2/runWorkflow.py -m local
+    strelka2/runWorkflow.py -m local -j ${task.cpus}
 
     TUMOURSNVVCF=\$(echo $tumourbam | sed 's/bam/strelka2.snv.vcf/')
     gunzip -c strelka2/results/variants/somatic.snvs.vcf.gz | \
@@ -740,8 +742,8 @@ process mntstr {
 */
 process lancet {
 
-  publishDir path: "$params.outDir/$sampleID/lancet"
-  publishDir path: "$params.outDir/calls/variants/vcf", mode: "copy", pattern: '*raw.vcf'
+  publishDir path: "$params.outDir/samples/$sampleID/lancet"
+  publishDir path: "$params.outDir/output/vcf", mode: "copy", pattern: '*raw.vcf'
 
   input:
   set val(sampleID), file(tumourbam), file(tumourbai), val(germlineID), file(germlinebam), file(germlinebai) from lanceting
@@ -788,7 +790,7 @@ ALLVCFS = lancet_veping
 
 process vepann {
 
-  publishDir path: "$params.outDir/calls/variants/vcf", mode: "copy", pattern: '*.vcf'
+  publishDir path: "$params.outDir/output/vcf", mode: "copy", pattern: '*.vcf'
 
   input:
   each file(vcf) from ALLVCFS
@@ -838,9 +840,9 @@ ALLVVCFS = runGRanges
 
 process vcfGRa {
 
-  publishDir "$params.outDir/calls/variants/pdf", pattern: '*.pdf'
-  publishDir "$params.outDir/calls/variants/vcf", pattern: '*.vcf'
-  publishDir "$params.outDir/calls/variants/data", pattern: '*.[*RData,*tab]'
+  publishDir "$params.outDir/output/pdf", pattern: '*.pdf'
+  publishDir "$params.outDir/output/vcf", pattern: '*.vcf'
+  publishDir "$params.outDir/output/data", pattern: '*.[*RData,*tab]'
 
   input:
   file(grangesvcfs) from ALLVVCFS.collect()
@@ -852,13 +854,15 @@ process vcfGRa {
   script:
   """
   OUTID=\$(basename ${workflow.launchDir})
-
-  Rscript --vanilla ${params.binDir}/variants_GRanges_consensus_plot.call.R \
-    ${params.binDir}/variants_GRanges_consensus_plot.func.R \
-    ${params.germlineID} \
-    "snv_indel.pass.vep.vcf" \
-    \$OUTID \
-    \"${params.includeOrder}\"
+  TEST=\$(for x in \$(ls); do echo \$x | cut -d"." -f 1;done | uniq)
+  if [[ \$(echo \$TEST | sed 's/\\s */\\n/g' | wc -l) > 1 ]]; then
+    Rscript --vanilla ${params.binDir}/variants_GRanges_consensus_plot.call.R \
+      ${params.binDir}/variants_GRanges_consensus_plot.func.R \
+      ${params.germlineID} \
+      "snv_indel.pass.vep.vcf" \
+      \$OUTID \
+      \"${params.includeOrder}\"
+  fi
   """
 }
 
@@ -886,8 +890,8 @@ process pcgrVcf {
 */
 process pcgrreport {
 
-  publishDir "$params.outDir/calls/reports", mode: "copy", pattern: "*html"
-  publishDir "$params.outDir/calls/variants/pcgr", mode: "copy", pattern: "*[!.html]"
+  publishDir "$params.outDir/reports", mode: "copy", pattern: "*html"
+  publishDir "$params.outDir/output/pcgr", mode: "copy", pattern: "*[!.html]"
 
   input:
   file(pcgrinputs) from pcgrinput.collect()
@@ -936,7 +940,7 @@ process pcgrreport {
 */
 process mltiQC {
 
-  publishDir path: "$params.outDir/calls/reports", mode: "copy", pattern: "*html"
+  publishDir path: "$params.outDir/reports", mode: "copy", pattern: "*html"
 
   input:
   file(fastps) from fastp_multiqc.collect()
