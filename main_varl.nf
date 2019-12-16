@@ -12,7 +12,6 @@ if (params.help) {
   log.info 'nextflow run main.nf \
               --sampleCsv "data/sample.csv" \
               --refDir "refs" \
-              --includeOrder "tumour_A,tumour_B" \
               --germline \
               --multiqcConfig "~/.multiqc/my.config"'
   log.info ''
@@ -21,7 +20,6 @@ if (params.help) {
   log.info '    --refDir      STRING      dir in which reference data and required indices held; recommended to run associated reference creation NextFlow, DNAseq_references'
   log.info ''
   log.info 'Optional arguments:'
-  log.info '    --includeOrder      STRING      in final plots, use this ordering of samples (if multiple somatic samples); comma-separated, no spaces'
   log.info '    --germline      STRING      run HaplotypeCaller on germline sample and annotate with CPSR'
   log.info '    --multiqcConfig      STRING      config file for multiqc'
   log.info ''
@@ -315,8 +313,8 @@ process gtkrcl {
 
   output:
   file('*.table') into gtkrcl_multiqc
-  set val(type), val(sampleID), file('*.bqsr.bam') into (germfiltering, somafiltering)
-  set val(type), val(sampleID), val(meta), file('*.bqsr.bam') into gatk_germ
+  set val(type), val(sampleID), file('*.bqsr.bam'), file('*.bqsr.bam.bai') into (germfiltering, varlpreproc)
+  set val(type), val(sampleID), val(meta), file('*.bqsr.bam'), file('*.bqsr.bam.bai') into gatk_germ
 
   script:
   """
@@ -341,6 +339,7 @@ process gtkrcl {
     -O \$OUTBAM \
     -L $exomeintlist
 
+  samtools index $bam > $bam".bai"
   } 2>&1 | tee > $sampleID".GATK4_recal.log.txt"
   """
 }
@@ -352,7 +351,7 @@ process gatkgerm {
   publishDir "$params.outDir/samples/$sampleID/gatk4/HC_germline", mode: "copy", pattern: "*"
 
   input:
-  set val(type), val(sampleID), val(meta), file(bam) from gatk_germ
+  set val(type), val(sampleID), val(meta), file(bam), file(bai) from gatk_germ
   set file(fasta), file(fai), file(dict) from Channel.value([params.fasta, params.fai, params.dict])
   set file(dbsnp), file(dbsnptbi) from Channel.value([params.dbsnp, params.dbsnptbi])
   file(exomeintlist) from Channel.value(params.exomeintlist)
@@ -360,6 +359,9 @@ process gatkgerm {
 
   output:
   set val(type), val(sampleID), val(meta), file('*.HC.vcf.gz'), file('*.HC.vcf.gz.tbi') into germ_vcf
+
+  when:
+  type == "germline"
 
   script:
   """
@@ -400,9 +402,6 @@ process cpsr {
   output:
   file('*') into cpsr_vcfs
 
-  when:
-  type == "germline"
-
   script:
   """
   {
@@ -428,12 +427,11 @@ process cpsr {
 process grmflt {
 
   input:
-  set val(type), val(sampleID), file(bam) from germfiltering
+  set val(type), val(sampleID), file(bam), file(bai) from germfiltering
 
   output:
-  file(bam) into germbamcombine
   file('*.bam.bai') into germbaicombine
-  set val(sampleID), file(bam), file('*.bam.bai') into gmultimetricing
+  set val(sampleID), file(bam), file(bai) into (gmultimetricing, germbamcand)
   val(sampleID) into germlineID
 
   when:
@@ -441,7 +439,6 @@ process grmflt {
 
   script:
   """
-  samtools index $bam > $bam".bai"
   """
 }
 params.germlineID = germlineID.getVal()
@@ -451,17 +448,16 @@ params.germlineID = germlineID.getVal()
 process smaflt {
 
   input:
-  set val(type), val(sampleID), file(bam) from somafiltering
+  set val(type), val(sampleID), file(bam), file(bai) from somafiltering
 
   output:
-  set val(sampleID), file(bam), file ('*.bam.bai') into (multimetricing, germcombine)
+  set val(sampleID), file(bam), file(bai) into (multimetricing, germcombine)
 
   when:
   type != "germline"
 
   script:
   """
-  samtools index $bam > $bam".bai"
   """
 }
 
@@ -822,92 +818,90 @@ process lancet {
   """
 }
 
-/* 3.0: Annotate Vcfs
+/* 3.0: Consolidate Candidate Variants from VCFs
 */
 ALLVCFS = lancet_veping
           .mix( mutect2_veping )
           .mix( strelka2_veping )
 
-process vepann {
+process varl_candidates {
 
-  publishDir path: "$params.outDir/output/vcf", mode: "copy", pattern: '*.vcf'
+  publishDir path: "$params.outDir/outputs/vcf/varlociraptor", mode: "copy"
 
   input:
-  each file(vcf) from ALLVCFS
-  set file(fasta), file(fai), file(dict) from Channel.value([params.fasta, params.fai, params.dict])
-  file(pcgr_grch_vep) from vepanndir
+  file(vcf) from ALLVCFS
+  set val(germlineID), file(germlinebam), file(germlinebai) from germbamcand
 
   output:
-  file('*.vcf') into runGRanges
+  file("candidate.vcf") into varlpreproccand
 
   script:
   """
-  VCFANNO=\$(echo $vcf | sed "s/.vcf/.vep.vcf/")
-  VEPVERS=\$(ls $pcgr_grch_vep/homo_sapiens/ | cut -d "_" -f2)
-  vep --dir_cache $pcgr_grch_vep \
-    --offline \
-    --assembly \$VEPVERS \
-    --vcf_info_field ANN \
-    --symbol \
-    --species homo_sapiens \
-    --check_existing \
-    --cache \
-    --fork ${task.cpus} \
-    --af_1kg \
-    --af_gnomad \
-    --vcf \
-    --input_file $vcf \
-    --output_file \$VCFANNO \
-    --format "vcf" \
-    --fasta $fasta \
-    --hgvs \
-    --canonical \
-    --ccds \
-    --force_overwrite \
-    --verbose
+  echo "##fileformat=VCFv4.1" > "candidates.vcf"
+  samtools view -H $germlinebam | grep @SQ | while read LINE; do
+    CHR=$(echo \$LINE | perl -ane '\$F[1]=~s/SN://; print \$F[1];')
+    LEN=$(echo \$LINE | perl -ane '\$F[2]=~s/LN://; print \$F[2];')
+    echo "##contig=<ID=\${CHR},length=\${LEN}>"
+  done >> "candidates.vcf"
+  echo -e "#CHROM\\tPOS\\tREF\\tALT" >> "candidates.vcf"
+  for VCF in *.vcf; do
+    grep -v '#' \$VCF | cut -f 1,2,4,5;
+  done | sort -V | uniq >> "candidates.vcf"
   """
 }
 
-/* 3.1 RData GRanges from processed VCFs
-* take publishDir and check for number of files therein
-* each sample has 9 associated (raw,snv,indel per caller)
-* NB increment if adding callers!
+/* 3.1: Preprocess BAMs for Varlociraptor
 */
-ALLVVCFS = runGRanges
-         .mix(lancet_rawVcf)
-         .mix(mutect2_rawVcf)
-         .mix(strelka2_rawVcf)
+process varl_preproc {
 
-process vcfGRa {
-
-  publishDir "$params.outDir/output/pdf", pattern: '*.pdf'
-  publishDir "$params.outDir/output/vcf", pattern: '*.vcf'
-  publishDir "$params.outDir/output/data", pattern: '*.[*RData,*tab]'
+  publishDir path: "$params.outDir/samples/$sampleID/varlociraptor", mode: "copy"
 
   input:
-  file(grangesvcfs) from ALLVVCFS.collect()
+  set val(type), val(sampleID), file(bam), file(bai) from varlpreproc
+  each file(candvcf) from varlpreproccand
+  set file(fasta), file(fai), file(dict) from Channel.value([params.fasta, params.fai, params.dict])
 
   output:
-  file('*.ALL.pcgr.all.tab.vcf') into pcgrvcfs
-  file('*') into completedvcfGRangesConsensus
+  file('*.observations.vcf') into varlcalling
 
   script:
   """
-  Rscript --vanilla ${workflow.projectDir}/bin/variants_GRanges_consensus_plot.call.R \
-    ${workflow.projectDir}/bin/variants_GRanges_consensus_plot.func.R \
-    ${params.germlineID} \
-    "snv_indel.pass.vep.vcf" \
-    \"${params.includeOrder}\"
+  varlociraptor preprocess variants $fasta \
+    --bam $bam \
+    --output $sampleID".observations.vcf" < $candvcf
+  """
+}
+
+/* 3.2: Varlociraptor Calling
+*/
+process varl_call {
+
+  publishDir path: "$params.outDir/samples/$sampleID/varlociraptor", mode: "copy"
+
+  input:
+  set file(vcf) from varlcalling.collect()
+
+  output:
+  file('calls.vcf') into varl_called
+
+  script:
+  """
+  ##create YAML scenario, shell to execute scenario
+  perl ${workflow.projectDir}/bin/varlociraptor_call_yaml.pl \
+    ${params.germlineID} > varlociraptor_call.yaml
+
+  ##run call made in above #customPerl script
+  sh varlociraptor_scenario_call.sh > calls.vcf
   """
 }
 
 process pcgrVcf {
 
   input:
-  file(vcf) from pcgrvcfs
+  file(vcf) from varl_called
 
   output:
-  file('*snv_indel.pass.pcgr.vcf') into pcgrinput
+  file('*.pcgr.vcf') into pcgrinput
 
   script:
   """
