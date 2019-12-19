@@ -10,13 +10,14 @@ my $GERMID=$ARGV[0];
 
 ##define output, concatenate per sample.observations.vcf encountered starting
 my $OUTPUT="samples:\n";
-my $OUTCALL="varlociraptor call variants generic --scenario varlociraptor_call.yaml --obs germ=" . $GERMID . ".observations.vcf";
+my $OUTCALL="varlociraptor call variants --output cons.calls.bcf generic --scenario varlociraptor_call.yaml --obs $GERMID=$GERMID" . ".observations.vcf ";
 
 ##standard entry for tumour samples
-my $STDT="\t\tresolution: 10\n\t\tuniverse: \"[0.0,1.0]\"\n\t\tcontamination:\n\t\t\tby: normal\n\t\t\tfraction: 0.25\n";
+##NB YAML takes double space instead of tabs
+my $STDT="    resolution: 1\n    universe: \"[0.0,1.0]\"\n    contamination:\n      by: $GERMID\n      fraction: 0.25\n";
 
 ##put in germline
-$OUTPUT.="\tgerm:\n\t\tresolution: 10\n\t\tuniverse: \"0.0 | 0.5 | 1.0 | ]0.0,0.5[\"\n";
+$OUTPUT.="  $GERMID:\n    resolution: 1\n    universe: \"0.0 | 0.5 | 1.0 | ]0.0,0.5[\"\n";
 
 ##iterate over vcfs, catch basename (sampleID) and write entry
 my @HOLDIDs;
@@ -24,19 +25,21 @@ my @VCFs=glob("*.vcf");
 
 foreach my $vcf (@VCFs){
   my @s=split(/\./,$vcf);
-  $OUTPUT.="\t" . $s . ":\n$STDT";
-  push(@HOLDIDs, $s);
-  $OUTCALL.=$s . "=" . $vcf . " ";
+  if($s[0] ne $GERMID){
+    $OUTPUT.="  " . $s[0] . ":\n$STDT";
+    push(@HOLDIDs, $s[0]);
+    $OUTCALL.=$s[0] . "=" . $vcf . " ";
+  }
 }
 
 ##set entries to test; first germline, somatic normal
-$OUTPUT.="\nevents:\n\tgermline:\t\"germ:0.5 | germ:1.0\n\tsomatic_normal\tgerm:\"]0.0,0.5[\"\n";
+$OUTPUT.="\nevents:\n  germline:  \"$GERMID:0.5 | $GERMID:1.0\"\n  somatic_normal:  \"$GERMID:]0.0,0.5[\"\n";
 
 foreach my $id (@HOLDIDs){
-  $OUTPUT.="\tsomatic_" . $id . ":\t\"germ:0.0 & " . $id . ":]0.0,1.0]\"\n";
+  $OUTPUT.="  somatic_" . $id . ":  \"$GERMID:0.0 & " . $id . ":]0.0,1.0]\"\n";
 }
 
-$OUTCALL.=" > cons.calls.vcf";
+$OUTCALL.="\n";
 open(OUTCAL,">varlociraptor_scenario_call.sh");
 print OUTCAL $OUTCALL;
 close OUTCAL;

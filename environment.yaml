@@ -26,6 +26,7 @@ dependencies:
   - fastqc=0.11.8
   - gatk4=4.1.2.0
   - htslib=1.9
+  - libiconv=1.15
   - msisensor=0.5
   - multiqc=1.7
   - octopus=0.5.2b
